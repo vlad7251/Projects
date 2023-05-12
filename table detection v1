@@ -1,0 +1,43 @@
+import PyPDF2
+import cv2
+import numpy as np
+import pytesseract
+import pandas as pd
+from pdf2image import convert_from_path
+from skimage.filters import threshold_local
+
+# Extracting data from PDF
+pdf_file = open('TabledetectionMLtask.pdf', 'rb')
+pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+# Convert to image
+page = pdf_reader.pages[0]
+page_content = page.extract_text()
+page_image = convert_from_path('example.pdf')[0]
+
+# Detect tables
+# Grayscale image conversion and binarization
+gray = cv2.cvtColor(np.array(page_image), cv2.COLOR_RGB2GRAY)
+# Image quality improvement
+gray = cv2.medianBlur(gray, 3)
+gray = cv2.fastNlMeansDenoising(gray, h=10)
+thresh = threshold_local(gray, 11, offset=10, method="median")
+binary = (gray > thresh).astype("uint8") * 255
+
+# Contour search and table extraction
+contours, hierarchy = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+tables = []
+for contour in contours:
+    x, y, w, h = cv2.boundingRect(contour)
+    area = cv2.contourArea(contour)
+    if area > 2000 and h > 50 and w > 50:
+        tables.append((x, y, w, h))
+
+
+# Extracting data from tables and saving to CSV
+for i, table in enumerate(tables):
+    x, y, w, h = table
+    table_image = page_image.crop((x, y, x + w, y + h))
+    table_image.save(f'table_{i}.png')
+    table_data = pytesseract.image_to_data(table_image, output_type='data.frame', config='--psm 6 -c tessedit_ocr_engine_mode=1', lang="eng")
+    table_data.to_csv(f'table_{i}.csv', index=False)
